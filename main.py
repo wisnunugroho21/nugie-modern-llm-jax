@@ -1,18 +1,14 @@
-import flax.nnx as nnx
-import jax
-import jax.numpy as jnp
-import optax
-
+import math
 from typing import Any
 
+import flax.nnx as nnx
 import grain.python as grain
+import jax
 import jax.numpy as jnp
 import numpy as np
-from absl import app
+import optax
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizer
-
-import math
 
 
 class GroupQueryAttention(nnx.Module):
@@ -47,7 +43,6 @@ class GroupQueryAttention(nnx.Module):
 
         self.causal_mask = jnp.tril(jnp.ones((seq_length, seq_length), dtype=bool))
         self.scale = 1.0 / jnp.sqrt(self.head_dim)
-        
 
     def __call__(self, x: jax.Array) -> jax.Array:
         batch_size, seq_length, _ = x.shape
@@ -142,7 +137,7 @@ class TransformerBlock(nnx.Module):
             head_dim=head_dim,
             dropout_rate=dropout_rate,
             seq_length=seq_length,
-            rngs=rngs
+            rngs=rngs,
         )
 
         self.norm1 = LayerNorm(embed_dim)
@@ -215,8 +210,6 @@ class GPTModel(nnx.Module):
         x = self.blocks(x)
         x = self.final_norm(x)
         return self.out_nn(x)
-    
-
 
 
 class HuggingFaceDataSource(grain.RandomAccessDataSource):
@@ -228,7 +221,6 @@ class HuggingFaceDataSource(grain.RandomAccessDataSource):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         return self.hf_ds[index]
-
 
 
 class TokenizerAndShift(grain.MapTransform):
@@ -300,57 +292,67 @@ def build_dataloader(
 
     return loader
 
+
 def loss_fn(model: nnx.Module, batch: dict[str, jax.Array]) -> jax.Array:
-    logits = model(batch['inputs'])
+    logits = model(batch["inputs"])
     loss = optax.softmax_cross_entropy_with_integer_labels(
-        logits=logits, labels=batch['targets']
+        logits=logits, labels=batch["targets"]
     ).mean()
 
     return loss
 
+
 @nnx.jit
-def train_step(model: nnx.Module, optimizer: nnx.Optimizer, batch: dict[str, jax.Array]) -> jax.Array:
+def train_step(
+    model: nnx.Module, optimizer: nnx.Optimizer, batch: dict[str, jax.Array]
+) -> jax.Array:
     grad_fn = nnx.value_and_grad(loss_fn)
     loss, grads = grad_fn(model, batch)
 
     optimizer.update(model, grads)
     return loss
 
+
 @nnx.jit
 def eval_step(model: nnx.Module, batch: dict[str, jax.Array]) -> jax.Array:
-    logits = model(batch['inputs'])
+    logits = model(batch["inputs"])
     loss = optax.softmax_cross_entropy_with_integer_labels(
-        logits=logits, labels=batch['targets']
+        logits=logits, labels=batch["targets"]
     ).mean()
 
     return loss
 
-train_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-val_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
-
-gpt2tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained("gpt2")
-gpt2tokenizer.pad_token = gpt2tokenizer.eos_token
-
-train_loader: grain.DataLoader = build_dataloader(train_dataset, gpt2tokenizer, batch_size=8, max_length=128)
-val_loader: grain.DataLoader = build_dataloader(val_dataset, gpt2tokenizer, batch_size=8, max_length=128)
-
-rngs: nnx.Rngs = nnx.Rngs(0)
-model: nnx.Module = GPTModel(
-    vocab_size=gpt2tokenizer.vocab_size,
-    embed_dim=512,
-    num_query_heads=8,
-    num_kv_heads=4,
-    head_dim=64,
-    seq_length=127,
-    dropout_rate=0.1,
-    n_layers=6,
-    emb_dim_multiply=4,
-    rngs=rngs,
-)
-
-optimizer = nnx.Optimizer(model, optax.adamw(learning_rate=3e-4), wrt=nnx.Param)
 
 def train_and_evaluate(num_epochs: int = 1, eval_every_n_steps: int = 5):
+    train_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+    val_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
+
+    gpt2tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained("gpt2")
+    gpt2tokenizer.pad_token = gpt2tokenizer.eos_token
+
+    train_loader: grain.DataLoader = build_dataloader(
+        train_dataset, gpt2tokenizer, batch_size=8, max_length=128
+    )
+    val_loader: grain.DataLoader = build_dataloader(
+        val_dataset, gpt2tokenizer, batch_size=8, max_length=128
+    )
+
+    rngs: nnx.Rngs = nnx.Rngs(0)
+    model: nnx.Module = GPTModel(
+        vocab_size=gpt2tokenizer.vocab_size,
+        embed_dim=512,
+        num_query_heads=8,
+        num_kv_heads=4,
+        head_dim=64,
+        seq_length=127,
+        dropout_rate=0.1,
+        n_layers=6,
+        emb_dim_multiply=4,
+        rngs=rngs,
+    )
+
+    optimizer = nnx.Optimizer(model, optax.adamw(learning_rate=3e-4), wrt=nnx.Param)
+
     step = 0
     print("Starting training...")
 
@@ -370,16 +372,23 @@ def train_and_evaluate(num_epochs: int = 1, eval_every_n_steps: int = 5):
                 avg_val_loss = total_val_loss / val_steps
                 perplexity = math.exp(avg_val_loss)
 
-                print(f"Val Loss: {avg_val_loss:.4f} | Perplexity: {perplexity:.2f} | Epoch: {epoch+1}/{num_epochs}")
-                
-            print(f"Step {step:04d} | Train Loss: {train_loss:.4f} | Epoch: {epoch+1}/{num_epochs}")
+                print(
+                    f"Val Loss: {avg_val_loss:.4f} | Perplexity: {perplexity:.2f} | Epoch: {epoch + 1}/{num_epochs}"
+                )
+
+            print(
+                f"Step {step:04d} | Train Loss: {train_loss:.4f} | Epoch: {epoch + 1}/{num_epochs}"
+            )
             step += 1
 
-        step = 0 # Reset step count after each epoch
+        step = 0  # Reset step count after each epoch
+
 
 if __name__ == "__main__":
     import sys
+
     from absl import flags
-    flags.FLAGS(sys.argv) # Parse flags to keep Grain multiprocessing happy
-    
+
+    flags.FLAGS(sys.argv)  # Parse flags to keep Grain multiprocessing happy
+
     train_and_evaluate()
