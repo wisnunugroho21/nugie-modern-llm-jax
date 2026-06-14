@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import orbax.checkpoint as ocp
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -322,10 +323,84 @@ def eval_step(model: nnx.Module, batch: dict[str, jax.Array]) -> jax.Array:
 
     return loss
 
+def save_checkpoint(
+    mngr: ocp.CheckpointManager,
+    step: int, 
+    model: nnx.Module, 
+    optimizer: nnx.Optimizer, 
+    data_iterator
+) -> None:
+    """Bundles model weights, optimizer momentum, and Grain iterator state to disk."""
+    print(f"Saving checkpoint at step {step}...")
+    
+    # 1. Get the NNX state (Model + Optimizer)
+    _, nnx_state = nnx.split((model, optimizer))
+    
+    # 2. Get the Grain iterator state
+    grain_state = data_iterator.get_state()
+    
+    # 3. Create a unified PyTree dictionary
+    unified_state = {
+        "nnx": nnx_state,
+        "grain": grain_state
+    }
+    
+    # 4. Save the unified state
+    mngr.save(
+        step, 
+        args=ocp.args.StandardSave(unified_state)
+    )
+    
+    # Block until save is complete to ensure safety
+    mngr.wait_until_finished()
+    print("Save complete!")
+    
+
+def restore_checkpoint(
+    mngr: ocp.CheckpointManager,
+    model: nnx.Module, 
+    optimizer: nnx.Optimizer, 
+    data_iterator
+) -> int:
+    """Restores the unified state and injects it back into the objects."""
+    
+    latest_step = mngr.latest_step()
+    if latest_step is None:
+        print("No existing checkpoints found. Starting from scratch (Step 0).")
+        return 0 
+    
+    print(f"Found checkpoint at step {latest_step}. Restoring...")
+    
+    # 1. Create the abstract template for NNX
+    _, abstract_nnx_state = nnx.split((model, optimizer))
+    
+    # 2. Create the abstract template for Grain 
+    # (We can just use its current empty state as the template)
+    abstract_grain_state = data_iterator.get_state()
+    
+    # 3. Assemble the abstract unified state
+    abstract_unified_state = {
+        "nnx": abstract_nnx_state,
+        "grain": abstract_grain_state
+    }
+    
+    # 4. Restore from disk
+    restored_state = mngr.restore(
+        latest_step, 
+        args=ocp.args.StandardRestore(abstract_unified_state)
+    )
+    
+    # 5. Inject the restored states back into their respective objects
+    nnx.update((model, optimizer), restored_state["nnx"])
+    data_iterator.set_state(restored_state["grain"])
+    
+    print("Restore complete! Model, Optimizer, and DataLoader are synchronized.")
+    return latest_step
+
 
 def train_and_evaluate(num_epochs: int = 1, eval_every_n_steps: int = 5):
-    train_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-    val_dataset: Dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
+    train_dataset: Dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="train")
+    val_dataset: Dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="validation")
 
     gpt2tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained("gpt2")
     gpt2tokenizer.pad_token = gpt2tokenizer.eos_token
