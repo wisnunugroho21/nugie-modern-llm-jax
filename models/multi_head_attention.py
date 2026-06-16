@@ -2,6 +2,7 @@ import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
 
+
 class MultiHeadAttentionV1(nnx.Module):
     def __init__(
         self,
@@ -47,7 +48,9 @@ class MultiHeadAttentionV1(nnx.Module):
         causal_mask = jnp.tril(jnp.ones((seq_length, seq_length), dtype=bool))
 
         scores = query @ key.swapaxes(-2, -1) / jnp.sqrt(self.head_dim)
-        scores = jnp.where(causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.where(
+            causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
@@ -59,7 +62,8 @@ class MultiHeadAttentionV1(nnx.Module):
         )
 
         return self.out_nn(context)
-    
+
+
 class MultiHeadAttentionV2(nnx.Module):
     def __init__(
         self,
@@ -102,7 +106,9 @@ class MultiHeadAttentionV2(nnx.Module):
         value = value.transpose(0, 2, 1, 3)
 
         scores = query @ key.swapaxes(-2, -1) * self.scale
-        scores = jnp.where(self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.where(
+            self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
@@ -114,7 +120,8 @@ class MultiHeadAttentionV2(nnx.Module):
         )
 
         return self.out_nn(context)
-    
+
+
 class MultiHeadAttentionV3(nnx.Module):
     def __init__(
         self,
@@ -156,13 +163,15 @@ class MultiHeadAttentionV3(nnx.Module):
         key = key.transpose(0, 2, 1, 3)
         value = value.transpose(0, 2, 1, 3)
 
-        scores = jnp.einsum('bhqd, bhkd -> bhqk', query, key) * self.scale
-        scores = jnp.where(self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.einsum("bhqd, bhkd -> bhqk", query, key) * self.scale
+        scores = jnp.where(
+            self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
 
-        context = jnp.einsum('bhqk, bhvd -> bhqd', weights, value)
+        context = jnp.einsum("bhqk, bhvd -> bhqd", weights, value)
         context = context.transpose(0, 2, 1, 3)
         context = context.reshape(
             batch_size, seq_length, self.num_heads * self.head_dim

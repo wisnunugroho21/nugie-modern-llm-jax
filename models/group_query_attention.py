@@ -2,6 +2,7 @@ import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
 
+
 class GroupQueryAttentionV1(nnx.Module):
     def __init__(
         self,
@@ -33,7 +34,7 @@ class GroupQueryAttentionV1(nnx.Module):
         self.out_nn = nnx.Linear(
             self.num_query_heads * self.head_dim, self.embed_dim, rngs=rngs
         )
-        
+
         self.dropout = nnx.Dropout(dropout_rate, rngs=rngs)
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -63,7 +64,9 @@ class GroupQueryAttentionV1(nnx.Module):
         causal_mask = jnp.tril(jnp.ones((seq_length, seq_length), dtype=bool))
 
         scores = query @ key.swapaxes(-2, -1) / jnp.sqrt(self.head_dim)
-        scores = jnp.where(causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.where(
+            causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
@@ -75,7 +78,8 @@ class GroupQueryAttentionV1(nnx.Module):
         )
 
         return self.out_nn(context)
-    
+
+
 class GroupQueryAttentionV2(nnx.Module):
     def __init__(
         self,
@@ -114,7 +118,7 @@ class GroupQueryAttentionV2(nnx.Module):
 
         if self.num_query_heads % self.num_kv_heads != 0:
             raise ValueError("num_query_heads must be divisible by num_kv_heads")
-    
+
         query = self.query_nn(x)
 
         kv = self.kv_nn(x)
@@ -135,7 +139,9 @@ class GroupQueryAttentionV2(nnx.Module):
         value = value.transpose(0, 2, 1, 3)
 
         scores = query @ key.swapaxes(-2, -1) * self.scale
-        scores = jnp.where(self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.where(
+            self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
@@ -147,7 +153,8 @@ class GroupQueryAttentionV2(nnx.Module):
         )
 
         return self.out_nn(context)
-    
+
+
 class GroupQueryAttentionV3(nnx.Module):
     def __init__(
         self,
@@ -186,7 +193,7 @@ class GroupQueryAttentionV3(nnx.Module):
 
         if self.num_query_heads % self.num_kv_heads != 0:
             raise ValueError("num_query_heads must be divisible by num_kv_heads")
-    
+
         query = self.query_nn(x)
 
         kv = self.kv_nn(x)
@@ -206,13 +213,15 @@ class GroupQueryAttentionV3(nnx.Module):
         key = key.transpose(0, 2, 1, 3)
         value = value.transpose(0, 2, 1, 3)
 
-        scores = jnp.einsum('bhqd, bhkd -> bhqk', query, key) * self.scale
-        scores = jnp.where(self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf)
+        scores = jnp.einsum("bhqd, bhkd -> bhqk", query, key) * self.scale
+        scores = jnp.where(
+            self.causal_mask[None, None, :seq_length, :seq_length], scores, -jnp.inf
+        )
 
         weights = jax.nn.softmax(scores, axis=-1)
         weights = self.dropout(weights)
 
-        context = jnp.einsum('bhqk, bhvd -> bhqd', weights, value)
+        context = jnp.einsum("bhqk, bhvd -> bhqd", weights, value)
         context = context.transpose(0, 2, 1, 3)
         context = context.reshape(
             batch_size, seq_length, self.num_query_heads * self.head_dim
