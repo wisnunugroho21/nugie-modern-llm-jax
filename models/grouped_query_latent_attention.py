@@ -42,7 +42,7 @@ class GroupedQueryLatentAttentionv1(nnx.Module):
         )
 
         # Transpose to (batch, num_q_heads, seq_len, head_dim)
-        q_heads = q_reshaped.swapaxes(-1, -2)
+        q_heads = q_reshaped.swapaxes(1, 2)
 
         # 2. KV LATENTS (M Heads)
         l_kv = self.w_dkv(x)
@@ -53,7 +53,7 @@ class GroupedQueryLatentAttentionv1(nnx.Module):
         )
 
         # Transpose to (batch, num_kv_heads, seq_len, head_dim)
-        l_kv_heads = l_kv_reshaped.swapaxes(-1, -2)
+        l_kv_heads = l_kv_reshaped.swapaxes(1, 2)
 
         # 3. EXPLICITLY REPEAT KV HEADS
         # Repeat the M heads along the num_heads axis (axis=1) by the group_size
@@ -81,7 +81,7 @@ class GroupedQueryLatentAttentionv1(nnx.Module):
 
         # 8. RECOMBINE HEADS
         # Swap back to (batch, seq_len, num_q_heads, head_dim)
-        weighted_reshaped = weighted_heads.swapaxes(-1, -2)
+        weighted_reshaped = weighted_heads.swapaxes(1, 2)
 
         # Flatten: (batch, seq_len, num_q_heads * head_dim)
         weighted_latents = weighted_reshaped.reshape(
@@ -140,7 +140,7 @@ class GroupedQueryLatentAttentionv2(nnx.Module):
         )
 
         # Transpose to (batch, num_q_heads, seq_len, head_dim)
-        q_heads = q_reshaped.swapaxes(-1, -2)
+        q_heads = q_reshaped.swapaxes(1, 2)
 
         # 2. KV LATENTS (M Heads)
         l_kv = self.w_dkv(x)
@@ -151,7 +151,7 @@ class GroupedQueryLatentAttentionv2(nnx.Module):
         )
 
         # Transpose to (batch, num_kv_heads, seq_len, head_dim)
-        l_kv_heads = l_kv_reshaped.swapaxes(-1, -2)
+        l_kv_heads = l_kv_reshaped.swapaxes(1, 2)
 
         # 3. EXPLICITLY REPEAT KV HEADS
         # Repeat the M heads along the num_heads axis (axis=1) by the group_size
@@ -185,7 +185,7 @@ class GroupedQueryLatentAttentionv2(nnx.Module):
 
         # 8. RECOMBINE HEADS
         # Swap back to (batch, seq_len, num_q_heads, head_dim)
-        weighted_reshaped = weighted_heads.swapaxes(-1, -2)
+        weighted_reshaped = weighted_heads.swapaxes(1, 2)
 
         # Flatten: (batch, seq_len, num_q_heads * head_dim)
         weighted_latents = weighted_reshaped.reshape(
