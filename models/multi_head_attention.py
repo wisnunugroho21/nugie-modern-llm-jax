@@ -122,7 +122,7 @@ class MultiHeadAttentionV2(nnx.Module):
         return self.out_nn(context)
 
 
-class MultiHeadAttentionV3(nnx.Module):
+class MultiHeadAttention(nnx.Module):
     def __init__(
         self,
         embed_dim: int,

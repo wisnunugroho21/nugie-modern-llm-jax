@@ -93,20 +93,20 @@ class MultiHeadLatentAttentionV2(nnx.Module):
 
     Parameters
     ----------
-    d_model     : embedding dimension  (diagram: 7168)
+    embed_dim     : embedding dimension  (diagram: 7168)
     d_latent    : latent dimension     (diagram:  576)
     rngs        : Flax NNX random number generators
     """
 
-    def __init__(self, d_model: int, d_latent: int, rngs: nnx.Rngs):
+    def __init__(self, embed_dim: int, d_latent: int, rngs: nnx.Rngs):
         # Corresponds to W_Q W_UK^T (e.g., 7168 x 576)
-        self.w_q_uk = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_q_uk = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_DKV (e.g., 7168 x 576)
-        self.w_dkv = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_dkv = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_UV W_O (e.g., 576 x 7168)
-        self.w_uv_o = nnx.Linear(d_latent, d_model, use_bias=False, rngs=rngs)
+        self.w_uv_o = nnx.Linear(d_latent, embed_dim, use_bias=False, rngs=rngs)
 
     def __call__(self, x: jax.Array, mask: jax.Array | None = None) -> jax.Array:
         """
@@ -117,7 +117,7 @@ class MultiHeadLatentAttentionV2(nnx.Module):
         out   : final output — same shape as X
         """
 
-        # x shape: (batch_size, seq_len, d_model)
+        # x shape: (batch_size, seq_len, embed_dim)
         # d is the latent dimension for scaling
         d = self.w_q_uk.out_features
 
@@ -155,18 +155,18 @@ class MultiHeadLatentAttentionV2(nnx.Module):
 
 
 class MultiHeadLatentAttentionV3(nnx.Module):
-    def __init__(self, d_model: int, d_latent: int, rngs: nnx.Rngs):
+    def __init__(self, embed_dim: int, d_latent: int, rngs: nnx.Rngs):
         # Corresponds to W_Q W_UK^T (e.g., 7168 x 576)
-        self.w_q_uk = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_q_uk = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_DKV (e.g., 7168 x 576)
-        self.w_dkv = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_dkv = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_UV W_O (e.g., 576 x 7168)
-        self.w_uv_o = nnx.Linear(d_latent, d_model, use_bias=False, rngs=rngs)
+        self.w_uv_o = nnx.Linear(d_latent, embed_dim, use_bias=False, rngs=rngs)
 
     def __call__(self, x: jax.Array, mask: jax.Array | None = None) -> jax.Array:
-        # x shape: (batch_size, seq_len, d_model)
+        # x shape: (batch_size, seq_len, embed_dim)
         # d is the latent dimension for scaling
         d = self.w_q_uk.out_features
 
@@ -203,8 +203,8 @@ class MultiHeadLatentAttentionV3(nnx.Module):
         return output
 
 
-class MultiHeadLatentAttentionV4(nnx.Module):
-    def __init__(self, d_model: int, d_latent: int, num_heads: int, rngs: nnx.Rngs):
+class MultiHeadLatentAttention(nnx.Module):
+    def __init__(self, embed_dim: int, d_latent: int, num_heads: int, rngs: nnx.Rngs):
         # Ensure the latent dimension is perfectly divisible by the number of heads
         if d_latent % num_heads != 0:
             raise ValueError(
@@ -216,13 +216,13 @@ class MultiHeadLatentAttentionV4(nnx.Module):
         self.head_dim = d_latent // num_heads
 
         # Corresponds to W_Q W_UK^T
-        self.w_q_uk = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_q_uk = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_DKV
-        self.w_dkv = nnx.Linear(d_model, d_latent, use_bias=False, rngs=rngs)
+        self.w_dkv = nnx.Linear(embed_dim, d_latent, use_bias=False, rngs=rngs)
 
         # Corresponds to W_UV W_O
-        self.w_uv_o = nnx.Linear(d_latent, d_model, use_bias=False, rngs=rngs)
+        self.w_uv_o = nnx.Linear(d_latent, embed_dim, use_bias=False, rngs=rngs)
 
     def __call__(self, x: jax.Array, mask: jax.Array | None = None) -> jax.Array:
         batch_size, seq_len, _ = x.shape
@@ -276,6 +276,6 @@ class MultiHeadLatentAttentionV4(nnx.Module):
         )
 
         # 8. OUTPUT PROJECTION
-        output = self.w_uv_o(weighted_latents)  # Shape: (batch, seq_len, d_model)
+        output = self.w_uv_o(weighted_latents)  # Shape: (batch, seq_len, embed_dim)
 
         return output

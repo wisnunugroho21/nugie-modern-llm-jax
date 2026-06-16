@@ -7,7 +7,7 @@ class GroupQueryAttentionV1(nnx.Module):
     def __init__(
         self,
         embed_dim: int,
-        num_query_heads: int,
+        num_q_heads: int,
         num_kv_heads: int,
         head_dim: int,
         dropout_rate: float,
@@ -15,12 +15,12 @@ class GroupQueryAttentionV1(nnx.Module):
         rngs: nnx.Rngs,
     ) -> None:
         self.embed_dim = embed_dim
-        self.num_query_heads = num_query_heads
+        self.num_q_heads = num_q_heads
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
 
         self.query_nn = nnx.Linear(
-            self.embed_dim, self.num_query_heads * self.head_dim, rngs=rngs
+            self.embed_dim, self.num_q_heads * self.head_dim, rngs=rngs
         )
 
         self.key_nn = nnx.Linear(
@@ -32,7 +32,7 @@ class GroupQueryAttentionV1(nnx.Module):
         )
 
         self.out_nn = nnx.Linear(
-            self.num_query_heads * self.head_dim, self.embed_dim, rngs=rngs
+            self.num_q_heads * self.head_dim, self.embed_dim, rngs=rngs
         )
 
         self.dropout = nnx.Dropout(dropout_rate, rngs=rngs)
@@ -40,20 +40,20 @@ class GroupQueryAttentionV1(nnx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         batch_size, seq_length, _ = x.shape
 
-        if self.num_query_heads % self.num_kv_heads != 0:
-            raise ValueError("num_query_heads must be divisible by num_kv_heads")
+        if self.num_q_heads % self.num_kv_heads != 0:
+            raise ValueError("num_q_heads must be divisible by num_kv_heads")
 
         query = self.query_nn(x)
         key = self.key_nn(x)
         value = self.value_nn(x)
 
         query = query.reshape(
-            batch_size, seq_length, self.num_query_heads, self.head_dim
+            batch_size, seq_length, self.num_q_heads, self.head_dim
         )
         key = key.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
         value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
 
-        kv_repeat = self.num_query_heads // self.num_kv_heads
+        kv_repeat = self.num_q_heads // self.num_kv_heads
         key = key.repeat(kv_repeat, axis=-2)
         value = value.repeat(kv_repeat, axis=-2)
 
@@ -74,7 +74,7 @@ class GroupQueryAttentionV1(nnx.Module):
         context = weights @ value
         context = context.transpose(0, 2, 1, 3)
         context = context.reshape(
-            batch_size, seq_length, self.num_query_heads * self.head_dim
+            batch_size, seq_length, self.num_q_heads * self.head_dim
         )
 
         return self.out_nn(context)
@@ -84,7 +84,7 @@ class GroupQueryAttentionV2(nnx.Module):
     def __init__(
         self,
         embed_dim: int,
-        num_query_heads: int,
+        num_q_heads: int,
         num_kv_heads: int,
         head_dim: int,
         dropout_rate: float,
@@ -92,12 +92,12 @@ class GroupQueryAttentionV2(nnx.Module):
         rngs: nnx.Rngs,
     ) -> None:
         self.embed_dim = embed_dim
-        self.num_query_heads = num_query_heads
+        self.num_q_heads = num_q_heads
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
 
         self.query_nn = nnx.Linear(
-            self.embed_dim, self.num_query_heads * self.head_dim, rngs=rngs
+            self.embed_dim, self.num_q_heads * self.head_dim, rngs=rngs
         )
 
         self.kv_nn = nnx.Linear(
@@ -105,7 +105,7 @@ class GroupQueryAttentionV2(nnx.Module):
         )
 
         self.out_nn = nnx.Linear(
-            self.num_query_heads * self.head_dim, self.embed_dim, rngs=rngs
+            self.num_q_heads * self.head_dim, self.embed_dim, rngs=rngs
         )
 
         self.dropout = nnx.Dropout(dropout_rate, rngs=rngs)
@@ -116,8 +116,8 @@ class GroupQueryAttentionV2(nnx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         batch_size, seq_length, _ = x.shape
 
-        if self.num_query_heads % self.num_kv_heads != 0:
-            raise ValueError("num_query_heads must be divisible by num_kv_heads")
+        if self.num_q_heads % self.num_kv_heads != 0:
+            raise ValueError("num_q_heads must be divisible by num_kv_heads")
 
         query = self.query_nn(x)
 
@@ -125,12 +125,12 @@ class GroupQueryAttentionV2(nnx.Module):
         key, value = jnp.split(kv, 2, axis=-1)
 
         query = query.reshape(
-            batch_size, seq_length, self.num_query_heads, self.head_dim
+            batch_size, seq_length, self.num_q_heads, self.head_dim
         )
         key = key.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
         value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
 
-        kv_repeat = self.num_query_heads // self.num_kv_heads
+        kv_repeat = self.num_q_heads // self.num_kv_heads
         key = key.repeat(kv_repeat, axis=-2)
         value = value.repeat(kv_repeat, axis=-2)
 
@@ -149,17 +149,17 @@ class GroupQueryAttentionV2(nnx.Module):
         context = weights @ value
         context = context.transpose(0, 2, 1, 3)
         context = context.reshape(
-            batch_size, seq_length, self.num_query_heads * self.head_dim
+            batch_size, seq_length, self.num_q_heads * self.head_dim
         )
 
         return self.out_nn(context)
 
 
-class GroupQueryAttentionV3(nnx.Module):
+class GroupQueryAttention(nnx.Module):
     def __init__(
         self,
         embed_dim: int,
-        num_query_heads: int,
+        num_q_heads: int,
         num_kv_heads: int,
         head_dim: int,
         dropout_rate: float,
@@ -167,12 +167,12 @@ class GroupQueryAttentionV3(nnx.Module):
         rngs: nnx.Rngs,
     ) -> None:
         self.embed_dim = embed_dim
-        self.num_query_heads = num_query_heads
+        self.num_q_heads = num_q_heads
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
 
         self.query_nn = nnx.Linear(
-            self.embed_dim, self.num_query_heads * self.head_dim, rngs=rngs
+            self.embed_dim, self.num_q_heads * self.head_dim, rngs=rngs
         )
 
         self.kv_nn = nnx.Linear(
@@ -180,7 +180,7 @@ class GroupQueryAttentionV3(nnx.Module):
         )
 
         self.out_nn = nnx.Linear(
-            self.num_query_heads * self.head_dim, self.embed_dim, rngs=rngs
+            self.num_q_heads * self.head_dim, self.embed_dim, rngs=rngs
         )
 
         self.dropout = nnx.Dropout(dropout_rate, rngs=rngs)
@@ -191,8 +191,8 @@ class GroupQueryAttentionV3(nnx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         batch_size, seq_length, _ = x.shape
 
-        if self.num_query_heads % self.num_kv_heads != 0:
-            raise ValueError("num_query_heads must be divisible by num_kv_heads")
+        if self.num_q_heads % self.num_kv_heads != 0:
+            raise ValueError("num_q_heads must be divisible by num_kv_heads")
 
         query = self.query_nn(x)
 
@@ -200,12 +200,12 @@ class GroupQueryAttentionV3(nnx.Module):
         key, value = jnp.split(kv, 2, axis=-1)
 
         query = query.reshape(
-            batch_size, seq_length, self.num_query_heads, self.head_dim
+            batch_size, seq_length, self.num_q_heads, self.head_dim
         )
         key = key.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
         value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
 
-        kv_repeat = self.num_query_heads // self.num_kv_heads
+        kv_repeat = self.num_q_heads // self.num_kv_heads
         key = key.repeat(kv_repeat, axis=-2)
         value = value.repeat(kv_repeat, axis=-2)
 
@@ -224,7 +224,7 @@ class GroupQueryAttentionV3(nnx.Module):
         context = jnp.einsum("bhqk, bhvd -> bhqd", weights, value)
         context = context.transpose(0, 2, 1, 3)
         context = context.reshape(
-            batch_size, seq_length, self.num_query_heads * self.head_dim
+            batch_size, seq_length, self.num_q_heads * self.head_dim
         )
 
         return self.out_nn(context)
