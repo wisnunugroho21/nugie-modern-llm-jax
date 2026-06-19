@@ -266,8 +266,8 @@ class GatedDeltaNet(nnx.Module):
         self.embed = nnx.Embed(vocab_size, dim, rngs=rngs)
         
         # Stack multiple blocks
-        self.blocks = nnx.List(
-            [
+        self.blocks = nnx.Sequential(
+            *[
                 GatedDeltaNetBlock(dim, num_heads, mlp_dim=dim * 4, chunk_size=chunk_size, rngs=rngs) 
                 for _ in range(num_layers)
             ]
@@ -279,8 +279,7 @@ class GatedDeltaNet(nnx.Module):
     def __call__(self, input_ids: jax.Array) -> jax.Array:
         x = self.embed(input_ids)
         
-        for block in self.blocks:
-            x = block(x)
+        x = self.blocks(x)
             
         x = self.norm_f(x)
         return self.lm_head(x)
