@@ -47,9 +47,7 @@ class GroupQueryAttentionV1(nnx.Module):
         kv = self.kv_nn(x)
         key, value = jnp.split(kv, 2, axis=-1)
 
-        query = query.reshape(
-            batch_size, seq_length, self.num_q_heads, self.head_dim
-        )
+        query = query.reshape(batch_size, seq_length, self.num_q_heads, self.head_dim)
         key = key.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
         value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
 
@@ -122,9 +120,7 @@ class GroupQueryAttention(nnx.Module):
         kv = self.kv_nn(x)
         key, value = jnp.split(kv, 2, axis=-1)
 
-        query = query.reshape(
-            batch_size, seq_length, self.num_q_heads, self.head_dim
-        )
+        query = query.reshape(batch_size, seq_length, self.num_q_heads, self.head_dim)
         key = key.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
         value = value.reshape(batch_size, seq_length, self.num_kv_heads, self.head_dim)
 

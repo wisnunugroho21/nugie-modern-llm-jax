@@ -105,7 +105,8 @@ class GroupedQueryLatentAttention(nnx.Module):
         output = self.w_uv_o(weighted_latents)
 
         return output
-    
+
+
 class GroupedQueryLatentAttention(nnx.Module):
     def __init__(
         self,

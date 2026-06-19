@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
+
 class GroupedQueryRopeLatentAttention(nnx.Module):
     def __init__(
         self,
@@ -41,13 +42,13 @@ class GroupedQueryRopeLatentAttention(nnx.Module):
         half_dim = head_dim // 2
         inv_freq = 1.0 / (rope_base ** (jnp.arange(0, half_dim) / half_dim))
         positions = jnp.arange(seq_length)
-        
+
         # Outer product to get angles: (seq_length, half_dim)
         angles = jnp.outer(positions, inv_freq)
-        
+
         # Duplicate angles for both halves of the embedding: (seq_length, head_dim)
         angles = jnp.concatenate([angles, angles], axis=-1)
-        
+
         # Add batch and head dimensions for easy broadcasting: (1, 1, seq_length, head_dim)
         self.freqs_cos = jnp.cos(angles)[None, None, :, :]
         self.freqs_sin = jnp.sin(angles)[None, None, :, :]
@@ -58,7 +59,7 @@ class GroupedQueryRopeLatentAttention(nnx.Module):
 
         # Rotate half the dimensions: [-x2, x1]
         rotated_half_x = jnp.concatenate([-x2, x1], axis=-1)
-        
+
         # Apply Euler's formula representation
         return (x * self.freqs_cos) + (rotated_half_x * self.freqs_sin)
 
@@ -82,8 +83,8 @@ class GroupedQueryRopeLatentAttention(nnx.Module):
         # 3. APPLY RoPE
         # Apply rotation to Queries
         q_heads = self.apply_rope(q_heads)
-        
-        # Apply rotation to KV Latents to act as Keys. 
+
+        # Apply rotation to KV Latents to act as Keys.
         # Values (v_heads) remain unrotated standard practice.
         k_heads = self.apply_rope(l_kv_heads)
         v_heads = l_kv_heads
@@ -125,16 +126,17 @@ class GroupedQueryRopeLatentAttention(nnx.Module):
         output = self.w_uv_o(weighted_latents)
 
         return output
-    
+
+
 # --- Execution & Verification ---
 rngs = nnx.Rngs(0)
 key = jax.random.key(0)
 
 # Configuration Dimensions
 d_model = 7168
-num_q_heads = 8   
-num_kv_heads = 2  
-head_dim = 72     
+num_q_heads = 8
+num_kv_heads = 2
+head_dim = 72
 seq_len = 10
 batch_size = 1
 dropout_rate = 0.5
@@ -147,7 +149,7 @@ gqa_latent_module = GroupedQueryRopeLatentAttention(
     head_dim=head_dim,
     dropout_rate=dropout_rate,
     seq_length=seq_len,
-    rngs=rngs
+    rngs=rngs,
 )
 
 X = jax.random.normal(key, (batch_size, seq_len, d_model))
