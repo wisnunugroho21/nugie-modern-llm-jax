@@ -2,7 +2,41 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-def chuncked_forward(
+def sequential_forward(
+    query: jax.Array,
+    key: jax.Array,
+    value: jax.Array,
+    beta: jax.Array,
+    gamma: jax.Array,
+    delta: jax.Array
+) -> jax.Array:
+    batch_size, seq_len, query_dim = query.shape
+    value_dim = value.shape[-1]
+
+    S_t = jnp.zeros((batch_size, query_dim, value_dim), dtype=query.dtype)
+    I = jnp.eye(query_dim, dtype=query.dtype)
+
+    outputs: list[jax.Array] = []
+
+    for t in range(seq_len):
+        q_t = jnp.expand_dims(query[:, t, :], axis=1)   # (B, 1, d_k)
+        k_t = jnp.expand_dims(key[:, t, :], axis=1)   # (B, 1, d_k)
+        v_t = jnp.expand_dims(value[:, t, :], axis=1)   # (B, 1, d_v)
+        b_t = jnp.expand_dims(beta[:, t, :], axis=1)   # (B, 1, d_k)
+        w_t = jnp.expand_dims(gamma[:, t, :], axis=1)   # (B, 1, d_v)
+        d_t = jnp.expand_dims(delta[:, t, :], axis=1)   # (B, 1, d_k)
+
+        A_t = (I - k_t.swapaxes(1, 2) * (b_t * k_t)) * d_t
+        B_t = k_t.swapaxes(1, 2) * (w_t * v_t)
+
+        S_t = A_t @ S_t + B_t
+        o_t = (q_t @ S_t).squeeze(1)
+
+        outputs.append(o_t)
+
+    return jnp.stack(outputs, axis=1)
+
+def chunked_forward(
     query: jax.Array,
     key: jax.Array,
     value: jax.Array,
@@ -11,7 +45,6 @@ def chuncked_forward(
     delta: jax.Array,
     chunk_size: int
 ) -> jax.Array:
-
     batch_size, seq_len, query_dim = query.shape
     value_dim = value.shape[-1]
 
@@ -27,12 +60,12 @@ def chuncked_forward(
     for chunk_index in range(num_chunks):
         start = chunk_index * chunk_size
 
-        q_c = jnp.expand_dims(query[:, start : start + chunk_size, :], axis=2) # (B, 1, d_k)
-        k_c = jnp.expand_dims(key[:, start : start + chunk_size, :], axis=2) # (B, 1, d_k)
-        v_c = jnp.expand_dims(value[:, start : start + chunk_size, :], axis=2) # (B, 1, d_v)
-        b_c = jnp.expand_dims(beta[:, start : start + chunk_size, :], axis=2) # (B, 1, d_k)
-        w_c = jnp.expand_dims(gamma[:, start : start + chunk_size, :], axis=2) # (B, 1, d_v)
-        d_c = jnp.expand_dims(delta[:, start : start + chunk_size, :], axis=2) # (B, 1, d_k)
+        q_c = jnp.expand_dims(query[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_k)
+        k_c = jnp.expand_dims(key[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_k)
+        v_c = jnp.expand_dims(value[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_v)
+        b_c = jnp.expand_dims(beta[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_k)
+        w_c = jnp.expand_dims(gamma[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_v)
+        d_c = jnp.expand_dims(delta[:, start : start + chunk_size, :], axis=2)   # (B, 1, d_k)
 
         A_c: list[jax.Array] = []
         B_c: list[jax.Array] = []
@@ -95,7 +128,7 @@ def chunked_forward_optimized(
     # Transposing allows jax.lax.scan to iterate over the chunks (axis 0).
     def prepare_scan_input(x: jax.Array) -> jax.Array:
         x_reshaped = x.reshape(batch_size, num_chunks, chunk_size, -1)
-        return jnp.swapaxes(x_reshaped, 0, 1)
+        return x_reshaped.swapaxes(0, 1)
 
     q_scan = prepare_scan_input(query)
     k_scan = prepare_scan_input(key)
@@ -104,38 +137,40 @@ def chunked_forward_optimized(
     w_scan = prepare_scan_input(gamma)
     d_scan = prepare_scan_input(delta)
 
+    I = jnp.eye(query_dim, dtype=query.dtype)
+
     # 2. Define the associative combination operator
     def combine(state1: tuple[jax.Array, jax.Array], state2: tuple[jax.Array, jax.Array]):
         A1, B1 = state1
         A2, B2 = state2
+
         # Batched matrix multiplications natively broadcast over the batch dimension
         A_out = A2 @ A1
         B_out = A2 @ B1 + B2
         return A_out, B_out
 
     # 3. Define the step function for the outer chunk scan
-    def chunk_step(S_prev: jax.Array, xs: tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]) -> tuple[jax.Array, jax.Array]:
+    def chunk_step(S_prev: jax.Array, xs: tuple):
         q_c, k_c, v_c, b_c, w_c, d_c = xs
         
         # Vectorized calculation of A_c and B_c for the entire chunk
         # outer_k shape: (batch, chunk_size, query_dim, query_dim)
         outer_k = jnp.einsum('bci,bcj->bcij', k_c, b_c * k_c)
-        I = jnp.eye(query_dim, dtype=query.dtype)
         
         # d_c is expanded to broadcast across the columns of the matrix
         A_c = (I - outer_k) * jnp.expand_dims(d_c, axis=-2)
         B_c = jnp.einsum('bci,bcj->bcij', k_c, w_c * v_c)
 
         # Transpose chunk dimension to axis 0 for associative_scan
-        A_c_t = jnp.swapaxes(A_c, 0, 1)
-        B_c_t = jnp.swapaxes(B_c, 0, 1)
+        A_c_t = A_c.swapaxes(0, 1)
+        B_c_t = B_c.swapaxes(0, 1)
 
         # 4. Perform the associative scan to resolve the prefix matrices
         A_cum_t, B_cum_t = jax.lax.associative_scan(combine, (A_c_t, B_c_t))
 
         # Transpose back to (batch, chunk_size, ...)
-        A_cum = jnp.swapaxes(A_cum_t, 0, 1)
-        B_cum = jnp.swapaxes(B_cum_t, 0, 1)
+        A_cum = A_cum_t.swapaxes(0, 1)
+        B_cum = B_cum_t.swapaxes(0, 1)
 
         # 5. Compute the hidden states and outputs for all tokens in the chunk
         # S_all shape: (batch, chunk_size, query_dim, value_dim)
@@ -160,7 +195,7 @@ def chunked_forward_optimized(
     )
 
     # Restore the original sequence dimension layout
-    o_out = jnp.swapaxes(o_scanned, 0, 1)
+    o_out = o_scanned.swapaxes(0, 1)
     return o_out.reshape(batch_size, num_chunks * chunk_size, value_dim)
 
 # --- 1. The Gated DeltaNet Layer ---
@@ -204,6 +239,10 @@ class GatedDeltaNetLayer(nnx.Module):
             return tensor.reshape(batch_size, seq_len, self.num_heads, self.head_dim)
 
         q, k, v = map(reshape_to_heads, (q, k, v))
+        
+        # Unit-norm keys to prevent explosive values in I - outer_k
+        k = k / jnp.maximum(jnp.linalg.norm(k, axis=-1, keepdims=True), 1e-6)
+
         beta, gamma, delta = map(reshape_to_heads, (beta, gamma, delta))
 
         # 4. Flatten Batch and Heads to reuse your exact chunked_forward function
